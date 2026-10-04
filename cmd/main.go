@@ -3,14 +3,19 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/joho/godotenv"
 
 	"github.com/muallimmaafi/siakad-mini/config"
 	"github.com/muallimmaafi/siakad-mini/database"
+	"github.com/muallimmaafi/siakad-mini/internal/handler"
 	"github.com/muallimmaafi/siakad-mini/internal/middleware"
+	"github.com/muallimmaafi/siakad-mini/internal/repository"
+	"github.com/muallimmaafi/siakad-mini/internal/service"
 	"github.com/muallimmaafi/siakad-mini/pkg/response"
 )
 
@@ -27,13 +32,37 @@ func main() {
 	})
 	app.Use(recover.New())
 
+	// Wiring: repository -> service -> handler
+	userRepo := repository.NewUserRepository(db)
+	authSvc := service.NewAuthService(userRepo)
+	authHandler := handler.NewAuthHandler(authSvc)
+
+	// Rate limit login: maks. 5 kali gagal per menit per IP.
+	// SkipSuccessfulRequests: login yang berhasil tidak dihitung.
+	loginLimiter := limiter.New(limiter.Config{
+		Max:                    5,
+		Expiration:             1 * time.Minute,
+		SkipSuccessfulRequests: true,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return response.Error(c, fiber.StatusTooManyRequests,
+				"Terlalu banyak percobaan login, coba lagi dalam 1 menit")
+		},
+	})
+
 	api := app.Group("/api/v1")
 
 	api.Get("/health", func(c *fiber.Ctx) error {
 		return response.Success(c, fiber.StatusOK, "OK", nil)
 	})
 
-	// SEMENTARA: cuma buat tes middleware, nanti dihapus
+	auth := api.Group("/auth")
+	auth.Post("/login", loginLimiter, authHandler.Login)
+	auth.Get("/me", middleware.AuthRequired(db), authHandler.Me)
+
+	// SEMENTARA: buat tes 403/200 role admin, dihapus di Step 6
 	api.Get("/ping", middleware.AuthRequired(db), middleware.RequireRole("admin"), func(c *fiber.Ctx) error {
 		return response.Success(c, fiber.StatusOK, "pong", nil)
 	})
