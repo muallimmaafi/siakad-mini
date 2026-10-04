@@ -10,6 +10,8 @@ import (
 
 	"github.com/muallimmaafi/siakad-mini/config"
 	"github.com/muallimmaafi/siakad-mini/database"
+	"github.com/muallimmaafi/siakad-mini/internal/middleware"
+	"github.com/muallimmaafi/siakad-mini/pkg/response"
 )
 
 func main() {
@@ -20,11 +22,20 @@ func main() {
 	db := config.ConnectDB()
 	database.Migrate(db)
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		ErrorHandler: response.ErrorHandler,
+	})
 	app.Use(recover.New())
 
-	app.Get("/api/v1/health", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"success": true, "message": "OK"})
+	api := app.Group("/api/v1")
+
+	api.Get("/health", func(c *fiber.Ctx) error {
+		return response.Success(c, fiber.StatusOK, "OK", nil)
+	})
+
+	// SEMENTARA: cuma buat tes middleware, nanti dihapus
+	api.Get("/ping", middleware.AuthRequired(db), middleware.RequireRole("admin"), func(c *fiber.Ctx) error {
+		return response.Success(c, fiber.StatusOK, "pong", nil)
 	})
 
 	log.Fatal(app.Listen(":" + os.Getenv("APP_PORT")))
