@@ -9,6 +9,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/muallimmaafi/siakad-mini/config"
+	"github.com/muallimmaafi/siakad-mini/database"
 )
 
 func main() {
@@ -17,7 +18,7 @@ func main() {
 	}
 
 	db := config.ConnectDB()
-	_ = db // dipakai di step berikutnya
+	database.Migrate(db)
 
 	app := fiber.New()
 	app.Use(recover.New())
