@@ -34,11 +34,15 @@ func main() {
 
 	// Wiring: repository -> service -> handler
 	userRepo := repository.NewUserRepository(db)
+	studentRepo := repository.NewStudentRepository(db)
+
 	authSvc := service.NewAuthService(userRepo)
+	studentSvc := service.NewStudentService(studentRepo)
+
 	authHandler := handler.NewAuthHandler(authSvc)
+	studentHandler := handler.NewStudentHandler(studentSvc)
 
 	// Rate limit login: maks. 5 kali gagal per menit per IP.
-	// SkipSuccessfulRequests: login yang berhasil tidak dihitung.
 	loginLimiter := limiter.New(limiter.Config{
 		Max:                    5,
 		Expiration:             1 * time.Minute,
@@ -52,20 +56,27 @@ func main() {
 		},
 	})
 
+	authRequired := middleware.AuthRequired(db)
+	adminOnly := middleware.RequireRole("admin")
+
 	api := app.Group("/api/v1")
 
 	api.Get("/health", func(c *fiber.Ctx) error {
 		return response.Success(c, fiber.StatusOK, "OK", nil)
 	})
 
+	// Auth
 	auth := api.Group("/auth")
 	auth.Post("/login", loginLimiter, authHandler.Login)
-	auth.Get("/me", middleware.AuthRequired(db), authHandler.Me)
+	auth.Get("/me", authRequired, authHandler.Me)
 
-	// SEMENTARA: buat tes 403/200 role admin, dihapus di Step 6
-	api.Get("/ping", middleware.AuthRequired(db), middleware.RequireRole("admin"), func(c *fiber.Ctx) error {
-		return response.Success(c, fiber.StatusOK, "pong", nil)
-	})
+	// Students
+	students := api.Group("/students", authRequired)
+	students.Get("/", adminOnly, studentHandler.List)
+	students.Post("/", adminOnly, studentHandler.Create)
+	students.Get("/:id", middleware.RequireRole("admin", "mahasiswa"), studentHandler.Show)
+	students.Put("/:id", adminOnly, studentHandler.Update)
+	students.Delete("/:id", adminOnly, studentHandler.Delete)
 
 	log.Fatal(app.Listen(":" + os.Getenv("APP_PORT")))
 }
