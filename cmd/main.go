@@ -36,14 +36,17 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	studentRepo := repository.NewStudentRepository(db)
 	courseRepo := repository.NewCourseRepository(db)
+	enrollmentRepo := repository.NewEnrollmentRepository(db)
 
 	authSvc := service.NewAuthService(userRepo)
 	studentSvc := service.NewStudentService(studentRepo)
 	courseSvc := service.NewCourseService(courseRepo)
+	enrollmentSvc := service.NewEnrollmentService(enrollmentRepo)
 
 	authHandler := handler.NewAuthHandler(authSvc)
 	studentHandler := handler.NewStudentHandler(studentSvc)
 	courseHandler := handler.NewCourseHandler(courseSvc)
+	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentSvc)
 
 	// Rate limit login: maks. 5 kali gagal per menit per IP.
 	loginLimiter := limiter.New(limiter.Config{
@@ -61,6 +64,7 @@ func main() {
 
 	authRequired := middleware.AuthRequired(db)
 	adminOnly := middleware.RequireRole("admin")
+	mahasiswaOnly := middleware.RequireRole("mahasiswa")
 
 	api := app.Group("/api/v1")
 
@@ -83,6 +87,11 @@ func main() {
 
 	// Courses (semua role yang sudah login)
 	api.Get("/courses", authRequired, courseHandler.List)
+
+	// Enrollments (khusus mahasiswa)
+	enrollments := api.Group("/enrollments", authRequired, mahasiswaOnly)
+	enrollments.Post("/", enrollmentHandler.Create)
+	enrollments.Delete("/:id", enrollmentHandler.Delete)
 
 	log.Fatal(app.Listen(":" + os.Getenv("APP_PORT")))
 }
